@@ -24,6 +24,14 @@ title:"Subjects"
 
 
 <Tabs.Screen
+  name="add-subject"
+  options={{
+    href: null,
+  }}
+/>
+
+
+<Tabs.Screen
 name="quiz"
 options={{
 title:"Quiz"
