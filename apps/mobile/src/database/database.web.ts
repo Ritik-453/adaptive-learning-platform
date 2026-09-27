@@ -15,6 +15,29 @@ type Topic = {
 };
 
 
+type ContentSource = {
+  id: number;
+  subject_id: number;
+  title: string;
+  source_type: string;
+  source_url?: string | null;
+  file_name?: string | null;
+  mime_type?: string | null;
+  approval_status: string;
+  created_at?: string;
+};
+
+
+type ContentChunk = {
+  id: number;
+  source_id: number;
+  topic_id: number | null;
+  chunk_text: string;
+  chunk_order: number;
+  created_at?: string;
+};
+
+
 class WebDatabase {
 
   private subjectStorageKey =
@@ -22,6 +45,12 @@ class WebDatabase {
 
   private topicStorageKey =
     "adaptive_learning_topics";
+
+  private contentSourceStorageKey =
+    "adaptive_learning_content_sources";
+
+  private contentChunkStorageKey =
+    "adaptive_learning_content_chunks";
 
 
   // ==========================================
@@ -143,6 +172,124 @@ class WebDatabase {
 
 
   // ==========================================
+  // CONTENT SOURCE STORAGE
+  // ==========================================
+
+  private getContentSources(): ContentSource[] {
+
+    if (
+      typeof window === "undefined" ||
+      !window.localStorage
+    ) {
+      return [];
+    }
+
+
+    const stored =
+      window.localStorage.getItem(
+        this.contentSourceStorageKey
+      );
+
+
+    if (!stored) {
+      return [];
+    }
+
+
+    try {
+
+      return JSON.parse(stored);
+
+    }
+    catch {
+
+      return [];
+
+    }
+
+  }
+
+
+  private saveContentSources(
+    sources: ContentSource[]
+  ) {
+
+    if (
+      typeof window === "undefined" ||
+      !window.localStorage
+    ) {
+      return;
+    }
+
+
+    window.localStorage.setItem(
+      this.contentSourceStorageKey,
+      JSON.stringify(sources)
+    );
+
+  }
+
+
+  // ==========================================
+  // CONTENT CHUNK STORAGE
+  // ==========================================
+
+  private getContentChunks(): ContentChunk[] {
+
+    if (
+      typeof window === "undefined" ||
+      !window.localStorage
+    ) {
+      return [];
+    }
+
+
+    const stored =
+      window.localStorage.getItem(
+        this.contentChunkStorageKey
+      );
+
+
+    if (!stored) {
+      return [];
+    }
+
+
+    try {
+
+      return JSON.parse(stored);
+
+    }
+    catch {
+
+      return [];
+
+    }
+
+  }
+
+
+  private saveContentChunks(
+    chunks: ContentChunk[]
+  ) {
+
+    if (
+      typeof window === "undefined" ||
+      !window.localStorage
+    ) {
+      return;
+    }
+
+
+    window.localStorage.setItem(
+      this.contentChunkStorageKey,
+      JSON.stringify(chunks)
+    );
+
+  }
+
+
+  // ==========================================
   // EXEC
   // ==========================================
 
@@ -158,13 +305,12 @@ class WebDatabase {
 
   // ==========================================
   // RUN
-  // INSERT / DELETE
   // ==========================================
 
   runSync(
     query: string,
     params: any[] = []
-  ) {
+  ): any {
 
     console.log(
       "WEB SQL:",
@@ -194,7 +340,6 @@ class WebDatabase {
         params[1];
 
 
-      // Seed subject
       if (!name) {
 
         if (
@@ -253,7 +398,10 @@ class WebDatabase {
       );
 
 
-      return;
+      return {
+        lastInsertRowId: nextId,
+        changes: 1,
+      };
 
     }
 
@@ -276,40 +424,79 @@ class WebDatabase {
         this.getSubjects();
 
 
-      const updatedSubjects =
+      this.saveSubjects(
+
         subjects.filter(
           subject =>
             subject.id !== id
-        );
+        )
 
-
-      this.saveSubjects(
-        updatedSubjects
       );
 
 
-      /*
-      Also remove topics belonging
-      to deleted subject.
-      */
-
+      // Remove topics
       const topics =
         this.getTopics();
 
 
-      const updatedTopics =
+      this.saveTopics(
+
         topics.filter(
           topic =>
             topic.subject_id !== id
-        );
+        )
 
-
-      this.saveTopics(
-        updatedTopics
       );
 
 
-      return;
+      // Find content sources for subject
+      const sources =
+        this.getContentSources();
+
+
+      const sourceIds =
+        sources
+          .filter(
+            source =>
+              source.subject_id === id
+          )
+          .map(
+            source =>
+              source.id
+          );
+
+
+      // Remove subject content sources
+      this.saveContentSources(
+
+        sources.filter(
+          source =>
+            source.subject_id !== id
+        )
+
+      );
+
+
+      // Remove chunks belonging to sources
+      const chunks =
+        this.getContentChunks();
+
+
+      this.saveContentChunks(
+
+        chunks.filter(
+          chunk =>
+            !sourceIds.includes(
+              chunk.source_id
+            )
+        )
+
+      );
+
+
+      return {
+        changes: 1,
+      };
 
     }
 
@@ -327,13 +514,6 @@ class WebDatabase {
       const topics =
         this.getTopics();
 
-
-      /*
-      Normal addTopic():
-
-      params[0] = subjectId
-      params[1] = topic name
-      */
 
       if (
         params.length >= 2
@@ -382,20 +562,13 @@ class WebDatabase {
         );
 
 
-        return;
+        return {
+          lastInsertRowId: nextId,
+          changes: 1,
+        };
 
       }
 
-
-      /*
-      Seed topics
-
-      Existing database seed:
-
-      (1,'Supervised Learning'),
-      (1,'Classification'),
-      (1,'Regression')
-      */
 
       if (
         query.includes(
@@ -472,21 +645,385 @@ class WebDatabase {
         this.getTopics();
 
 
-      const updated =
+      this.saveTopics(
+
         topics.filter(
           topic =>
             topic.id !== id
-        );
+        )
 
-
-      this.saveTopics(
-        updated
       );
 
 
-      return;
+      /*
+        Keep study material,
+        but remove mapping to
+        deleted topic.
+      */
+
+      const chunks =
+        this.getContentChunks();
+
+
+      const updatedChunks =
+        chunks.map(
+          chunk => {
+
+            if (
+              chunk.topic_id === id
+            ) {
+
+              return {
+                ...chunk,
+                topic_id: null,
+              };
+
+            }
+
+
+            return chunk;
+
+          }
+        );
+
+
+      this.saveContentChunks(
+        updatedChunks
+      );
+
+
+      return {
+        changes: 1,
+      };
 
     }
+
+
+    // ========================================
+    // INSERT CONTENT SOURCE
+    // ========================================
+
+    if (
+      query.includes(
+        "INSERT INTO content_sources"
+      )
+    ) {
+
+      const sources =
+        this.getContentSources();
+
+
+      const subjectId =
+        Number(params[0]);
+
+      const title =
+        String(params[1]);
+
+      const sourceType =
+        params[2]
+          ? String(params[2])
+          : "TEXT";
+
+
+      const nextId =
+
+        sources.length > 0
+
+          ? Math.max(
+              ...sources.map(
+                source =>
+                  source.id
+              )
+            ) + 1
+
+          : 1;
+
+
+      sources.push({
+
+        id: nextId,
+
+        subject_id:
+          subjectId,
+
+        title,
+
+        source_type:
+          sourceType,
+
+        source_url: null,
+
+        file_name: null,
+
+        mime_type: null,
+
+        approval_status:
+          "APPROVED",
+
+        created_at:
+          new Date().toISOString(),
+
+      });
+
+
+      this.saveContentSources(
+        sources
+      );
+
+
+      /*
+        Important:
+
+        add-note.tsx needs this
+        lastInsertRowId.
+      */
+
+      return {
+
+        lastInsertRowId:
+          nextId,
+
+        changes: 1,
+
+      };
+
+    }
+
+
+    // ========================================
+    // DELETE CONTENT SOURCE
+    // ========================================
+
+    if (
+      query.includes(
+        "DELETE FROM content_sources"
+      )
+    ) {
+
+      const id =
+        Number(params[0]);
+
+
+      const sources =
+        this.getContentSources();
+
+
+      this.saveContentSources(
+
+        sources.filter(
+          source =>
+            source.id !== id
+        )
+
+      );
+
+
+      /*
+        Also delete chunks belonging
+        to this source.
+      */
+
+      const chunks =
+        this.getContentChunks();
+
+
+      this.saveContentChunks(
+
+        chunks.filter(
+          chunk =>
+            chunk.source_id !== id
+        )
+
+      );
+
+
+      return {
+        changes: 1,
+      };
+
+    }
+
+
+    // ========================================
+    // INSERT CONTENT CHUNK
+    // ========================================
+
+    if (
+      query.includes(
+        "INSERT INTO content_chunks"
+      )
+    ) {
+
+      const chunks =
+        this.getContentChunks();
+
+
+      const sourceId =
+        Number(params[0]);
+
+
+      const topicId =
+
+        params[1] === null ||
+        params[1] === undefined
+
+          ? null
+
+          : Number(params[1]);
+
+
+      const chunkText =
+        String(params[2]);
+
+
+      const chunkOrder =
+        Number(params[3] ?? 0);
+
+
+      const nextId =
+
+        chunks.length > 0
+
+          ? Math.max(
+              ...chunks.map(
+                chunk =>
+                  chunk.id
+              )
+            ) + 1
+
+          : 1;
+
+
+      chunks.push({
+
+        id: nextId,
+
+        source_id:
+          sourceId,
+
+        topic_id:
+          topicId,
+
+        chunk_text:
+          chunkText,
+
+        chunk_order:
+          chunkOrder,
+
+        created_at:
+          new Date().toISOString(),
+
+      });
+
+
+      this.saveContentChunks(
+        chunks
+      );
+
+
+      return {
+
+        lastInsertRowId:
+          nextId,
+
+        changes: 1,
+
+      };
+
+    }
+
+
+    // ========================================
+    // DELETE CONTENT CHUNK
+    // ========================================
+
+    if (
+      query.includes(
+        "DELETE FROM content_chunks"
+      )
+    ) {
+
+      const value =
+        Number(params[0]);
+
+
+      const chunks =
+        this.getContentChunks();
+
+
+      // Delete every chunk belonging
+      // to a content source.
+      if (
+        query.includes(
+          "WHERE source_id"
+        )
+      ) {
+
+        const updated =
+          chunks.filter(
+            chunk =>
+              chunk.source_id !== value
+          );
+
+
+        const changes =
+          chunks.length -
+          updated.length;
+
+
+        this.saveContentChunks(
+          updated
+        );
+
+
+        return {
+          changes,
+        };
+
+      }
+
+
+      // Delete one chunk by chunk ID.
+      if (
+        query.includes(
+          "WHERE id"
+        )
+      ) {
+
+        const updated =
+          chunks.filter(
+            chunk =>
+              chunk.id !== value
+          );
+
+
+        const changes =
+          chunks.length -
+          updated.length;
+
+
+        this.saveContentChunks(
+          updated
+        );
+
+
+        return {
+          changes,
+        };
+
+      }
+
+
+      return {
+        changes: 0,
+      };
+
+    }
+
+
+    return {
+      changes: 0,
+    };
 
   }
 
@@ -525,7 +1062,7 @@ class WebDatabase {
 
 
     // ========================================
-    // TOPICS BY SUBJECT
+    // TOPICS
     // ========================================
 
     if (
@@ -537,12 +1074,6 @@ class WebDatabase {
       const topics =
         this.getTopics();
 
-
-      /*
-      Repository query:
-
-      WHERE subject_id = ?
-      */
 
       if (
         query.includes(
@@ -572,10 +1103,123 @@ class WebDatabase {
 
       return [
         ...topics
+      ];
+
+    }
+
+
+    // ========================================
+    // CONTENT SOURCES
+    // ========================================
+
+    if (
+      query.includes(
+        "FROM content_sources"
+      )
+    ) {
+
+      const sources =
+        this.getContentSources();
+
+
+      if (
+        query.includes(
+          "WHERE subject_id"
+        )
+      ) {
+
+        const subjectId =
+          Number(params[0]);
+
+
+        return sources
+
+          .filter(
+            source =>
+              source.subject_id ===
+              subjectId
+          )
+
+          .sort(
+            (a, b) =>
+              b.id - a.id
+          );
+
+      }
+
+
+      return [
+        ...sources
       ].sort(
         (a, b) =>
           b.id - a.id
       );
+
+    }
+
+
+    // ========================================
+    // CONTENT CHUNKS
+    // ========================================
+
+    if (
+      query.includes(
+        "FROM content_chunks"
+      )
+    ) {
+
+      const chunks =
+        this.getContentChunks();
+
+
+      if (
+        query.includes(
+          "WHERE source_id"
+        )
+      ) {
+
+        const sourceId =
+          Number(params[0]);
+
+
+        return chunks
+
+          .filter(
+            chunk =>
+              chunk.source_id ===
+              sourceId
+          )
+
+          .sort(
+            (a, b) => {
+
+              if (
+                a.chunk_order !==
+                b.chunk_order
+              ) {
+
+                return (
+                  a.chunk_order -
+                  b.chunk_order
+                );
+
+              }
+
+
+              return (
+                a.id -
+                b.id
+              );
+
+            }
+          );
+
+      }
+
+
+      return [
+        ...chunks
+      ];
 
     }
 
@@ -608,11 +1252,9 @@ class WebDatabase {
     ) {
 
       return {
-
         count:
           this.getSubjects()
             .length,
-
       };
 
     }
@@ -632,11 +1274,53 @@ class WebDatabase {
     ) {
 
       return {
-
         count:
           this.getTopics()
             .length,
+      };
 
+    }
+
+
+    // ========================================
+    // CONTENT SOURCE COUNT
+    // ========================================
+
+    if (
+      query.includes(
+        "COUNT(*)"
+      ) &&
+      query.includes(
+        "content_sources"
+      )
+    ) {
+
+      return {
+        count:
+          this.getContentSources()
+            .length,
+      };
+
+    }
+
+
+    // ========================================
+    // CONTENT CHUNK COUNT
+    // ========================================
+
+    if (
+      query.includes(
+        "COUNT(*)"
+      ) &&
+      query.includes(
+        "content_chunks"
+      )
+    ) {
+
+      return {
+        count:
+          this.getContentChunks()
+            .length,
       };
 
     }
@@ -659,15 +1343,14 @@ class WebDatabase {
         Number(params[0]);
 
 
-      const subject =
+      return (
         this.getSubjects()
           .find(
-            item =>
-              item.id === id
-          );
-
-
-      return subject || null;
+            subject =>
+              subject.id === id
+          )
+        || null
+      );
 
     }
 
@@ -689,15 +1372,72 @@ class WebDatabase {
         Number(params[0]);
 
 
-      const topic =
+      return (
         this.getTopics()
           .find(
-            item =>
-              item.id === id
-          );
+            topic =>
+              topic.id === id
+          )
+        || null
+      );
+
+    }
 
 
-      return topic || null;
+    // ========================================
+    // CONTENT SOURCE BY ID
+    // ========================================
+
+    if (
+      query.includes(
+        "FROM content_sources"
+      ) &&
+      query.includes(
+        "WHERE id"
+      )
+    ) {
+
+      const id =
+        Number(params[0]);
+
+
+      return (
+        this.getContentSources()
+          .find(
+            source =>
+              source.id === id
+          )
+        || null
+      );
+
+    }
+
+
+    // ========================================
+    // CONTENT CHUNK BY ID
+    // ========================================
+
+    if (
+      query.includes(
+        "FROM content_chunks"
+      ) &&
+      query.includes(
+        "WHERE id"
+      )
+    ) {
+
+      const id =
+        Number(params[0]);
+
+
+      return (
+        this.getContentChunks()
+          .find(
+            chunk =>
+              chunk.id === id
+          )
+        || null
+      );
 
     }
 

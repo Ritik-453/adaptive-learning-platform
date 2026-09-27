@@ -21,12 +21,12 @@ import {
 
 import {
   getSubjectById,
-  getTopicsBySubject,
-  deleteTopic,
-} from "../../database/repository";
+  getContentSourcesBySubject,
+  deleteContentSource,
+} from "../../../database/repository";
 
 
-export default function SubjectDetails() {
+export default function SubjectContentScreen() {
 
   const router = useRouter();
 
@@ -41,62 +41,63 @@ export default function SubjectDetails() {
     getSubjectById(subjectId);
 
 
-  const [topics, setTopics] =
+  const [contentSources, setContentSources] =
     useState<any[]>([]);
 
 
-  function loadTopics() {
+  function loadContent() {
+
+    if (
+      !subjectId ||
+      Number.isNaN(subjectId)
+    ) {
+      return;
+    }
+
 
     const data =
-      getTopicsBySubject(
+      getContentSourcesBySubject(
         subjectId
       ) as any[];
 
-    setTopics(data);
+
+    setContentSources(data);
 
   }
-
-
-  useFocusEffect(
-
-    useCallback(() => {
-
-      loadTopics();
-
-    }, [subjectId])
-
-  );
-
 
   function performDelete(
     id: number
   ) {
 
-    deleteTopic(id);
+    deleteContentSource(id);
 
-    loadTopics();
+    loadContent();
 
   }
 
 
   function confirmDelete(
     id: number,
-    name: string
+    title: string
   ) {
 
     // WEB
-    if (Platform.OS === "web") {
+    if (
+      Platform.OS === "web"
+    ) {
 
       const confirmed =
         window.confirm(
-          `Delete topic "${name}"?`
+          `Delete study material "${title}"?`
         );
+
 
       if (confirmed) {
 
         performDelete(id);
 
       }
+
 
       return;
 
@@ -106,9 +107,9 @@ export default function SubjectDetails() {
     // ANDROID / IOS
     Alert.alert(
 
-      "Delete Topic",
+      "Delete Study Material",
 
-      `Are you sure you want to delete "${name}"?`,
+      `Are you sure you want to delete "${title}"?`,
 
       [
 
@@ -136,6 +137,17 @@ export default function SubjectDetails() {
   }
 
 
+  useFocusEffect(
+
+    useCallback(() => {
+
+      loadContent();
+
+    }, [subjectId])
+
+  );
+
+
   if (!subject) {
 
     return (
@@ -157,7 +169,26 @@ export default function SubjectDetails() {
 
     <View style={styles.container}>
 
+      <Pressable
+        style={styles.backButton}
+        onPress={() =>
+          router.back()
+        }
+      >
+
+        <Text style={styles.backButtonText}>
+          ← Back
+        </Text>
+
+      </Pressable>
+
+
       <Text style={styles.title}>
+        Study Material
+      </Text>
+
+
+      <Text style={styles.subjectName}>
         {subject.name}
       </Text>
 
@@ -175,43 +206,10 @@ export default function SubjectDetails() {
       }
 
 
-      {/* =====================================
-          STUDY MATERIAL
-      ====================================== */}
-
-      <Pressable
-
-        style={styles.contentButton}
-
-        onPress={() =>
-          router.push({
-            pathname:
-              "/subjects/content/[subjectId]",
-
-            params: {
-              subjectId:
-                String(subjectId),
-            },
-          })
-        }
-
-      >
-
-        <Text style={styles.contentButtonText}>
-          📚 Study Material
-        </Text>
-
-      </Pressable>
-
-
-      {/* =====================================
-          TOPICS
-      ====================================== */}
-
-      <View style={styles.topicHeader}>
+      <View style={styles.sectionHeader}>
 
         <Text style={styles.sectionTitle}>
-          Topics
+          Content Sources
         </Text>
 
 
@@ -221,7 +219,9 @@ export default function SubjectDetails() {
 
           onPress={() =>
             router.push({
-              pathname: "/subjects/add-topic",
+              pathname:
+                "/subjects/content/add-note",
+
               params: {
                 subjectId:
                   String(subjectId),
@@ -232,53 +232,65 @@ export default function SubjectDetails() {
         >
 
           <Text style={styles.addButtonText}>
-            + Add Topic
+            + Add Note
           </Text>
 
         </Pressable>
 
       </View>
 
-
       <FlatList
 
-        data={topics}
+        data={contentSources}
 
         keyExtractor={(item) =>
           item.id.toString()
         }
 
         contentContainerStyle={
-          topics.length === 0
+          contentSources.length === 0
             ? styles.emptyListContainer
             : undefined
         }
 
         ListEmptyComponent={
 
-          <Text style={styles.emptyText}>
-            No topics available.
-          </Text>
+          <View style={styles.emptyContainer}>
+
+            <Text style={styles.emptyTitle}>
+              No study material yet
+            </Text>
+
+            <Text style={styles.emptyText}>
+              Study notes and learning material for this subject will appear here.
+            </Text>
+
+          </View>
 
         }
 
         renderItem={({ item }) => (
 
-          <View style={styles.topicCard}>
+          <View style={styles.contentCard}>
 
-            <View style={styles.topicInfo}>
+            <View style={styles.contentInfo}>
 
-              <Text style={styles.topicName}>
-                {item.name}
+              <Text style={styles.contentTitle}>
+                {item.title}
+              </Text>
+
+
+              <Text style={styles.sourceType}>
+                Type: {item.source_type || "TEXT"}
               </Text>
 
 
               {
-                item.mastery_score !== undefined
+                item.approval_status
                 ?
                 (
-                  <Text style={styles.masteryText}>
-                    Mastery: {item.mastery_score}%
+                  <Text style={styles.statusText}>
+                    Status: {item.approval_status}
                   </Text>
                 )
                 :
@@ -295,7 +307,7 @@ export default function SubjectDetails() {
               onPress={() =>
                 confirmDelete(
                   item.id,
-                  item.name
+                  item.title
                 )
               }
 
@@ -334,67 +346,62 @@ StyleSheet.create({
   },
 
 
+  backButton: {
+
+    alignSelf: "flex-start",
+
+    marginBottom: 15,
+
+  },
+
+
+  backButtonText: {
+
+    fontSize: 16,
+
+    color: "#2563eb",
+
+    fontWeight: "600",
+
+  },
+
+
   title: {
 
     fontSize: 28,
 
     fontWeight: "bold",
 
-    marginBottom: 8,
+    marginBottom: 5,
+
+  },
+
+
+  subjectName: {
+
+    fontSize: 20,
+
+    fontWeight: "600",
+
+    color: "#333",
+
+    marginBottom: 5,
 
   },
 
 
   description: {
 
-    fontSize: 16,
+    fontSize: 15,
 
     color: "#666",
 
-    marginBottom: 20,
-
-  },
-
-
-  // ==========================================
-  // STUDY MATERIAL BUTTON
-  // ==========================================
-
-  contentButton: {
-
-    backgroundColor: "#ffffff",
-
-    padding: 14,
-
-    borderRadius: 10,
-
     marginBottom: 25,
 
-    borderWidth: 1,
-
-    borderColor: "#2563eb",
-
-    alignItems: "center",
-
   },
 
 
-  contentButtonText: {
-
-    color: "#2563eb",
-
-    fontSize: 16,
-
-    fontWeight: "700",
-
-  },
-
-
-  // ==========================================
-  // TOPIC HEADER
-  // ==========================================
-
-  topicHeader: {
+  sectionHeader: {
 
     flexDirection: "row",
 
@@ -402,19 +409,11 @@ StyleSheet.create({
 
     alignItems: "center",
 
+    marginTop: 15,
+
     marginBottom: 15,
 
   },
-
-
-  sectionTitle: {
-
-    fontSize: 22,
-
-    fontWeight: "bold",
-
-  },
-
 
   addButton: {
 
@@ -438,11 +437,16 @@ StyleSheet.create({
   },
 
 
-  // ==========================================
-  // TOPIC CARD
-  // ==========================================
+  sectionTitle: {
 
-  topicCard: {
+    fontSize: 22,
+
+    fontWeight: "bold",
+
+  },
+
+
+  contentCard: {
 
     backgroundColor: "white",
 
@@ -461,7 +465,7 @@ StyleSheet.create({
   },
 
 
-  topicInfo: {
+  contentInfo: {
 
     flex: 1,
 
@@ -470,55 +474,58 @@ StyleSheet.create({
   },
 
 
-  topicName: {
+  deleteButton: {
 
-    fontSize: 17,
+  backgroundColor: "#dc2626",
+
+  paddingVertical: 8,
+
+  paddingHorizontal: 12,
+
+  borderRadius: 7,
+
+},
+
+
+deleteButtonText: {
+
+  color: "white",
+
+  fontWeight: "600",
+
+},
+
+
+  contentTitle: {
+
+    fontSize: 18,
 
     fontWeight: "600",
+
+    marginBottom: 7,
 
   },
 
 
-  masteryText: {
-
-    marginTop: 5,
+  sourceType: {
 
     fontSize: 14,
 
-    color: "#666",
+    color: "#555",
 
   },
 
 
-  // ==========================================
-  // DELETE
-  // ==========================================
+  statusText: {
 
-  deleteButton: {
+    fontSize: 13,
 
-    backgroundColor: "#dc2626",
+    color: "#777",
 
-    paddingVertical: 8,
-
-    paddingHorizontal: 12,
-
-    borderRadius: 7,
+    marginTop: 4,
 
   },
 
-
-  deleteButtonText: {
-
-    color: "white",
-
-    fontWeight: "600",
-
-  },
-
-
-  // ==========================================
-  // EMPTY / ERROR
-  // ==========================================
 
   emptyListContainer: {
 
@@ -527,13 +534,37 @@ StyleSheet.create({
   },
 
 
+  emptyContainer: {
+
+    marginTop: 40,
+
+    alignItems: "center",
+
+    paddingHorizontal: 20,
+
+  },
+
+
+  emptyTitle: {
+
+    fontSize: 18,
+
+    fontWeight: "600",
+
+    marginBottom: 8,
+
+  },
+
+
   emptyText: {
 
-    marginTop: 20,
+    fontSize: 15,
+
+    color: "#777",
 
     textAlign: "center",
 
-    color: "#777",
+    lineHeight: 22,
 
   },
 
